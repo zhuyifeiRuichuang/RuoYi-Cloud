@@ -2,8 +2,8 @@
 # 用法（仓库根目录执行）：
 #   VERSION=3.6.8 docker compose -f cicd/docker-compose.yml up -d
 # 说明：
-#   - 业务镜像 ruoyi-* 来自 ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-<svc>:<VERSION>
-#   - 前端镜像来自 ghcr.io/zhuyifeiRuichuang/ruoyi-vue3/ruoyi-web:<VERSION>
+#   - 业务镜像 ruoyi-* 来自 ghcr.io/zhuyifeiruichuang/ruoyi-cloud/ruoyi-<svc>:<VERSION>
+#   - 前端镜像来自 ghcr.io/zhuyifeiruichuang/ruoyi-vue3/ruoyi-web:<VERSION>
 #   - 中间件使用 docker.io 官方原版：mysql:8.0 / redis:7-alpine / nacos/nacos-server:v3.0.2
 #   - 数据库初始化脚本在 cicd/sql（相对于本文件目录）
 #   - 测试环境关闭 Nacos 鉴权（NACOS_CORE_AUTH_ENABLED=false），生产请开启并配置令牌
@@ -70,7 +70,7 @@ services:
     restart: unless-stopped
 
   ruoyi-gateway:
-    image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-gateway:${VERSION}
+    image: ghcr.io/zhuyifeiruichuang/ruoyi-cloud/ruoyi-gateway:${VERSION}
     container_name: ruoyi-gateway
     environment:
       JAVA_OPTS: >-
@@ -84,7 +84,7 @@ services:
     restart: unless-stopped
 
   ruoyi-auth:
-    image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-auth:${VERSION}
+    image: ghcr.io/zhuyifeiruichuang/ruoyi-cloud/ruoyi-auth:${VERSION}
     container_name: ruoyi-auth
     environment:
       JAVA_OPTS: >-
@@ -98,7 +98,7 @@ services:
     restart: unless-stopped
 
   ruoyi-modules-system:
-    image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-system:${VERSION}
+    image: ghcr.io/zhuyifeiruichuang/ruoyi-cloud/ruoyi-system:${VERSION}
     container_name: ruoyi-modules-system
     environment:
       JAVA_OPTS: >-
@@ -112,7 +112,7 @@ services:
     restart: unless-stopped
 
   ruoyi-modules-gen:
-    image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-gen:${VERSION}
+    image: ghcr.io/zhuyifeiruichuang/ruoyi-cloud/ruoyi-gen:${VERSION}
     container_name: ruoyi-modules-gen
     environment:
       JAVA_OPTS: >-
@@ -126,7 +126,7 @@ services:
     restart: unless-stopped
 
   ruoyi-modules-job:
-    image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-job:${VERSION}
+    image: ghcr.io/zhuyifeiruichuang/ruoyi-cloud/ruoyi-job:${VERSION}
     container_name: ruoyi-modules-job
     environment:
       JAVA_OPTS: >-
@@ -140,7 +140,7 @@ services:
     restart: unless-stopped
 
   ruoyi-modules-file:
-    image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-file:${VERSION}
+    image: ghcr.io/zhuyifeiruichuang/ruoyi-cloud/ruoyi-file:${VERSION}
     container_name: ruoyi-modules-file
     environment:
       JAVA_OPTS: >-
@@ -156,7 +156,7 @@ services:
     restart: unless-stopped
 
   ruoyi-visual-monitor:
-    image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-monitor:${VERSION}
+    image: ghcr.io/zhuyifeiruichuang/ruoyi-cloud/ruoyi-monitor:${VERSION}
     container_name: ruoyi-visual-monitor
     environment:
       JAVA_OPTS: >-
@@ -170,7 +170,7 @@ services:
     restart: unless-stopped
 
   ruoyi-web:
-    image: ghcr.io/zhuyifeiRuichuang/ruoyi-vue3/ruoyi-web:${VERSION}
+    image: ghcr.io/zhuyifeiruichuang/ruoyi-vue3/ruoyi-web:${VERSION}
     container_name: ruoyi-web
     ports:
       - "80:80"
