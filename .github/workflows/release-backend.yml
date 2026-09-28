@@ -65,7 +65,9 @@ jobs:
           collect() {
             local path="$1" name="$2"
             local f
-            f=$(find "$path/target" -maxdepth 1 -name "ruoyi-${name}-*.jar" ! -name "*-sources.jar" ! -name "original-*.jar" | head -n1)
+            # 各模块 pom 配置 <finalName>${project.artifactId}</finalName>，
+            # fat jar 实际产物为 ruoyi-<name>.jar（无版本号），同时兼容带版本号的产物
+            f=$(find "$path/target" -maxdepth 1 \( -name "ruoyi-${name}.jar" -o -name "ruoyi-${name}-*.jar" \) ! -name "*-sources.jar" ! -name "original-*.jar" | head -n1)
             if [ -z "$f" ]; then
               echo "ERROR: fat jar not found for ${name} in ${path}/target"
               exit 1
