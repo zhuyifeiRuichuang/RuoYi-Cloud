@@ -53,12 +53,17 @@ jobs:
             }]
 
       # GitHub Packages Maven Registry 禁止重复发布同一 GA:V（重复上传返回 409 Conflict），
-      # 且无法覆盖。为使 workflow 对同一版本号可幂等重跑，发布前先删除 Packages 中
-      # 与本次构建版本相同的既有版本。
-      # 删除走 user 级 REST 端点（与官方 actions/delete-package-versions 相同）：
-      #   GET    /users/{owner}/packages/maven/{package_name}/versions
-      #   DELETE /users/{owner}/packages/maven/{package_name}/versions/{id}
-      # Maven 包托管在触发 workflow 的同一仓库时，GITHUB_TOKEN 具备删除权限（packages: write）。
+      # 且无法覆盖。为使 workflow 对同一版本号可幂等重跑，发布前先移除 Packages 中
+      # 与本次构建版本相同的既有版本/包。
+      #
+      # 关键约束（已实测）：Maven 包不允许删除包内的“最后一个版本”，版本删除端点会返回
+      # 400 并提示 "You cannot delete the last version of a package. You must delete the
+      # package instead."。因此本步骤的策略是：
+      #   - 若目标版本已是该包的唯一版本 -> 删除整个包
+      #     DELETE /user/packages/maven/{pkg}   （成功 204 / 已不存在 404）
+      #   - 若包内还存在其它版本 -> 仅删除目标版本
+      #     DELETE /users/{owner}/packages/maven/{pkg}/versions/{id}
+      # 两个端点对 Maven 包均可用，且由同一仓库的 GITHUB_TOKEN（packages: write）即可调用。
       - name: Remove existing package versions with same version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -66,41 +71,48 @@ jobs:
         run: |
           VERSION=$(awk '/<parent>/,/<\/parent>/{next} /<version>/{gsub(/.*<version>|<\/version>.*/,""); print; exit}' pom.xml)
           echo "Target version: ${VERSION}"
-          BASE="https://maven.pkg.github.com/${{ github.repository }}"
           API="https://api.github.com"
-          AUTH="${{ github.repository_owner }}:${GH_TOKEN}"
           for pom in $(find . -name pom.xml -not -path '*/target/*'); do
             if grep -q "<parent>" "${pom}"; then n=2; else n=1; fi
             GA=$(sed -n "s/.*<artifactId>\(.*\)<\/artifactId>.*/\1/p" "${pom}" | sed -n "${n}p")
             [ -z "${GA}" ] && continue
             PKG="com.ruoyi.${GA}"
-            URL="${BASE}/com/ruoyi/${GA}/${VERSION}/${GA}-${VERSION}.pom"
-            # maven.pkg.github.com 对已存在工件返回 302（重定向到 blob 存储），404 表示不存在
-            CODE=$(curl -s -o /dev/null -w '%{http_code}' -u "${AUTH}" "${URL}")
-            if [ "${CODE}" != "200" ] && [ "${CODE}" != "302" ]; then
-              echo "${PKG}@${VERSION}: not published (HTTP ${CODE}), nothing to remove"
-              continue
-            fi
+            # 该包已发布的目标版本 id 列表
             IDS=$(curl -s -H "Authorization: Bearer ${GH_TOKEN}" \
                   -H "Accept: application/vnd.github+json" \
                   "${API}/users/${GH_OWNER}/packages/maven/${PKG}/versions?per_page=100" \
                   | jq -r --arg v "${VERSION}" '.[] | select(.name == $v) | .id')
-            if [ -z "${IDS}" ]; then
-              echo "${PKG}@${VERSION}: registry HTTP ${CODE} but no matching version id, skip"
-              continue
-            fi
-            for ID in ${IDS}; do
+            [ -z "${IDS}" ] && { echo "${PKG}@${VERSION}: not published, skip"; continue; }
+            # 该包全部版本 id（判断是否仅剩目标版本）
+            ALL=$(curl -s -H "Authorization: Bearer ${GH_TOKEN}" \
+                  -H "Accept: application/vnd.github+json" \
+                  "${API}/users/${GH_OWNER}/packages/maven/${PKG}/versions?per_page=100" \
+                  | jq -r '.[].id')
+            if [ "$(printf '%s\n' "$ALL" | grep -c '^[0-9]')" -le 1 ]; then
+              # 仅含目标版本 -> 删除整个包（规避“最后版本不可删”的 400）
+              echo "${PKG}@${VERSION}: only version present, deleting whole package"
               DEL=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
                     -H "Authorization: Bearer ${GH_TOKEN}" \
                     -H "Accept: application/vnd.github+json" \
-                    "${API}/users/${GH_OWNER}/packages/maven/${PKG}/versions/${ID}")
-              echo "${PKG}@${VERSION}: delete version id ${ID} -> HTTP ${DEL}"
-              # 204=已删除，404=此前已被删除（视为成功）
-              if [ "${DEL}" != "204" ] && [ "${DEL}" != "404" ]; then
-                echo "ERROR: failed to delete ${PKG}@${VERSION}, deploy would fail with 409 Conflict"
-                exit 1
-              fi
-            done
+                    "${API}/user/packages/maven/${PKG}")
+            else
+              # 存在多个版本 -> 仅删除目标版本（非最后版本，版本删除端点可用）
+              echo "${PKG}@${VERSION}: deleting version id(s): ${IDS}"
+              DEL=204
+              for ID in ${IDS}; do
+                R=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
+                     -H "Authorization: Bearer ${GH_TOKEN}" \
+                     -H "Accept: application/vnd.github+json" \
+                     "${API}/users/${GH_OWNER}/packages/maven/${PKG}/versions/${ID}")
+                [ "${R}" = "204" ] || [ "${R}" = "404" ] || DEL="${R}"
+              done
+            fi
+            # 204=已删除，404=此前已被删除（视为成功）
+            if [ "${DEL}" != "204" ] && [ "${DEL}" != "404" ]; then
+              echo "ERROR: failed to remove ${PKG}@${VERSION} (HTTP ${DEL}), deploy would fail with 409 Conflict"
+              exit 1
+            fi
+            echo "${PKG}@${VERSION}: removed (HTTP ${DEL})"
           done
 
       # 打包并发布到 GitHub Maven Packages（com.ruoyi 下各模块）。跳过单测（CI 无 DB/Redis）
