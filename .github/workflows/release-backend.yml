@@ -1,163 +1,289 @@
 name: Release Backend (RuoYi-Cloud)
 
+
+
 # 全手动触发：在 Actions 页手动运行，并填写版本号（不含 v 前缀）
+
 on:
+
   workflow_dispatch:
+
     inputs:
+
       version:
+
         description: 'Release version, e.g. 3.6.8 (no leading v)'
+
         required: true
+
         default: '3.6.8'
 
+
+
 permissions:
+
   contents: write   # 创建 Release
+
   packages: write   # 发布到 GitHub Maven Packages
 
+
+
 env:
+
   MAVEN_OPTS: '-Xmx2g'
 
+
+
 jobs:
+
   build-and-release:
+
     runs-on: ubuntu-latest
+
     steps:
+
       - name: Checkout
+
         uses: actions/checkout@v4
 
+
+
       - name: Set up JDK 17 (Eclipse Temurin, latest)
+
         uses: actions/setup-java@v4
+
         with:
+
           distribution: temurin
+
           java-version: '17'
 
+
+
       - name: Set up Maven (latest stable 3.9.x)
+
         uses: stCarolas/setup-maven@v5
+
         with:
+
           maven-version: '3.9.16'
 
+
+
       # 强制直连 Maven Central、杜绝任何镜像（含中国地区加速）；同时配置 GitHub Packages 鉴权
+
       - name: Configure Maven settings (no mirror + GitHub Packages auth)
+
         uses: s4u/maven-settings-action@v3.1.0
+
         with:
+
           servers: |
+
             [{
+
               "id": "github",
+
               "username": "${{ github.actor }}",
+
               "password": "${{ secrets.GITHUB_TOKEN }}"
-            }]
-          mirrors: |
-            [{
-              "id": "central-only",
-              "name": "Maven Central (no mirror)",
-              "mirrorOf": "*",
-              "url": "https://repo.maven.apache.org/maven2"
+
             }]
 
+          mirrors: |
+
+            [{
+
+              "id": "central-only",
+
+              "name": "Maven Central (no mirror)",
+
+              "mirrorOf": "*",
+
+              "url": "https://repo.maven.apache.org/maven2"
+
+            }]
+
+
+
       # GitHub Packages Maven Registry 禁止重复发布同一 GA:V（重复上传返回 409 Conflict），
+
       # 且无法覆盖。为使 workflow 对同一版本号可幂等重跑，发布前先移除 Packages 中
+
       # 与本次构建版本相同的既有版本/包。
+
       #
+
       # 关键约束（已实测）：Maven 包不允许删除包内的“最后一个版本”，版本删除端点会返回
+
       # 400 并提示 "You cannot delete the last version of a package. You must delete the
+
       # package instead."。因此本步骤的策略是：
+
       #   - 若目标版本已是该包的唯一版本 -> 删除整个包
+
       #     DELETE /user/packages/maven/{pkg}   （成功 204 / 已不存在 404）
+
       #   - 若包内还存在其它版本 -> 仅删除目标版本
+
       #     DELETE /users/{owner}/packages/maven/{pkg}/versions/{id}
+
       # 两个端点对 Maven 包均可用，且由同一仓库的 GITHUB_TOKEN（packages: write）即可调用。
+
       - name: Remove existing package versions with same version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_OWNER: ${{ github.repository_owner }}
         run: |
-          VERSION=$(awk '/<parent>/,/<\/parent>/{next} /<version>/{gsub(/.*<version>|<\/version>.*/,""); print; exit}' pom.xml)
+          VERSION="${{ inputs.version }}"
           echo "Target version: ${VERSION}"
           API="https://api.github.com"
-          for pom in $(find . -name pom.xml -not -path '*/target/*'); do
-            if grep -q "<parent>" "${pom}"; then n=2; else n=1; fi
-            GA=$(sed -n "s/.*<artifactId>\(.*\)<\/artifactId>.*/\1/p" "${pom}" | sed -n "${n}p")
-            [ -z "${GA}" ] && continue
-            PKG="com.ruoyi.${GA}"
-            # 该包已发布的目标版本 id 列表
-            IDS=$(curl -s -H "Authorization: Bearer ${GH_TOKEN}" \
+          # 以“已发布包列表”为权威来源，只对真实存在的包做幂等清理，
+          # 避免对不存在的包发请求、导致 jq 在 404 错误响应上崩溃（bash -e 会让步骤整体失败）。
+          # 列出本用户的全部 maven 包（该账号仅承载 RuoYi-Cloud 一个仓库）。
+          LIST=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer ${GH_TOKEN}" \
                   -H "Accept: application/vnd.github+json" \
-                  "${API}/users/${GH_OWNER}/packages/maven/${PKG}/versions?per_page=100" \
-                  | jq -r --arg v "${VERSION}" '.[] | select(.name == $v) | .id')
-            [ -z "${IDS}" ] && { echo "${PKG}@${VERSION}: not published, skip"; continue; }
-            # 该包全部版本 id（判断是否仅剩目标版本）
-            ALL=$(curl -s -H "Authorization: Bearer ${GH_TOKEN}" \
-                  -H "Accept: application/vnd.github+json" \
-                  "${API}/users/${GH_OWNER}/packages/maven/${PKG}/versions?per_page=100" \
-                  | jq -r '.[].id')
+                  "${API}/users/${GH_OWNER}/packages?package_type=maven&per_page=100")
+          LCODE=$(echo "$LIST" | tail -1)
+          LBODY=$(echo "$LIST" | sed '$d')
+          if [ "$LCODE" != "200" ]; then
+            echo "ERROR: failed to list packages (HTTP ${LCODE})"
+            exit 1
+          fi
+          PKG_NAMES=$(echo "$LBODY" | jq -r '.[].name')
+          for PKG in $PKG_NAMES; do
+            RESP=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer ${GH_TOKEN}" \
+                    -H "Accept: application/vnd.github+json" \
+                    "${API}/users/${GH_OWNER}/packages/maven/${PKG}/versions?per_page=100")
+            VCODE=$(echo "$RESP" | tail -1)
+            VBODY=$(echo "$RESP" | sed '$d')
+            if [ "$VCODE" != "200" ]; then
+              echo "${PKG}: list versions failed (HTTP ${VCODE}), skip"
+              continue
+            fi
+            IDS=$(echo "$VBODY" | jq -r --arg v "$VERSION" '.[] | select(.name == $v) | .id')
+            if [ -z "$IDS" ]; then
+              echo "${PKG}@${VERSION}: not published, skip"
+              continue
+            fi
+            ALL=$(echo "$VBODY" | jq -r '.[].id')
             if [ "$(printf '%s\n' "$ALL" | grep -c '^[0-9]')" -le 1 ]; then
-              # 仅含目标版本 -> 删除整个包（规避“最后版本不可删”的 400）
               echo "${PKG}@${VERSION}: only version present, deleting whole package"
               DEL=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
-                    -H "Authorization: Bearer ${GH_TOKEN}" \
-                    -H "Accept: application/vnd.github+json" \
-                    "${API}/user/packages/maven/${PKG}")
-            else
-              # 存在多个版本 -> 仅删除目标版本（非最后版本，版本删除端点可用）
-              echo "${PKG}@${VERSION}: deleting version id(s): ${IDS}"
-              DEL=204
-              for ID in ${IDS}; do
-                R=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
                      -H "Authorization: Bearer ${GH_TOKEN}" \
                      -H "Accept: application/vnd.github+json" \
-                     "${API}/users/${GH_OWNER}/packages/maven/${PKG}/versions/${ID}")
-                [ "${R}" = "204" ] || [ "${R}" = "404" ] || DEL="${R}"
+                     "${API}/user/packages/maven/${PKG}")
+            else
+              echo "${PKG}@${VERSION}: deleting version id(s): ${IDS}"
+              DEL=204
+              for ID in $IDS; do
+                R=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
+                      -H "Authorization: Bearer ${GH_TOKEN}" \
+                      -H "Accept: application/vnd.github+json" \
+                      "${API}/users/${GH_OWNER}/packages/maven/${PKG}/versions/${ID}")
+                if [ "$R" != "204" ] && [ "$R" != "404" ]; then
+                  DEL="$R"
+                fi
               done
             fi
-            # 204=已删除，404=此前已被删除（视为成功）
-            if [ "${DEL}" != "204" ] && [ "${DEL}" != "404" ]; then
+            if [ "$DEL" != "204" ] && [ "$DEL" != "404" ]; then
               echo "ERROR: failed to remove ${PKG}@${VERSION} (HTTP ${DEL}), deploy would fail with 409 Conflict"
               exit 1
             fi
             echo "${PKG}@${VERSION}: removed (HTTP ${DEL})"
           done
 
+
+
       # 打包并发布到 GitHub Maven Packages（com.ruoyi 下各模块）。跳过单测（CI 无 DB/Redis）
+
       - name: Build and deploy to GitHub Packages (Maven)
+
         run: |
+
           mvn -B -ntp clean deploy -DskipTests \
+
             -DaltDeploymentRepository=github::https://maven.pkg.github.com/${{ github.repository }}
 
+
+
       # 收集 7 个可运行 fat-jar，统一命名为 ruoyi-<service>.jar，作为 Release 资产
+
       - name: Collect release JARs
+
         run: |
+
           mkdir -p staging
+
           collect() {
+
             local path="$1" name="$2" jar="$3"
+
             local f
+
             # 各模块 pom 配置 <finalName>${project.artifactId}</finalName>，
+
             # fat jar 产物为 <artifactId>.jar（无版本号），同时兼容带版本号的产物
+
             f=$(find "$path/target" -maxdepth 1 \( -name "${jar}.jar" -o -name "${jar}-*.jar" \) ! -name "*-sources.jar" ! -name "original-*.jar" | head -n1)
+
             if [ -z "$f" ]; then
+
               echo "ERROR: fat jar not found for ${jar} in ${path}/target"
+
               exit 1
+
             fi
+
             cp "$f" "staging/ruoyi-${name}.jar"
+
           }
+
           collect ruoyi-gateway gateway ruoyi-gateway
+
           collect ruoyi-auth auth ruoyi-auth
+
           collect ruoyi-modules/ruoyi-system system ruoyi-modules-system
+
           collect ruoyi-modules/ruoyi-gen gen ruoyi-modules-gen
+
           collect ruoyi-modules/ruoyi-job job ruoyi-modules-job
+
           collect ruoyi-modules/ruoyi-file file ruoyi-modules-file
+
           collect ruoyi-visual/ruoyi-monitor monitor ruoyi-visual-monitor
+
           ls -lh staging
 
+
+
       - name: Create GitHub Release and upload JARs
+
         env:
+
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
         run: |
+
           TAG="v${{ inputs.version }}"
+
           if gh release view "${TAG}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+
             echo "Release ${TAG} already exists, skip create and refresh JARs"
+
             gh release upload "${TAG}" staging/ruoyi-*.jar --repo "${{ github.repository }}" --clobber || true
+
           else
+
             gh release create "${TAG}" \
+
               --repo "${{ github.repository }}" \
+
               --title "RuoYi-Cloud v${{ inputs.version }}" \
+
               --notes "Automated release of RuoYi-Cloud backend JARs (version ${{ inputs.version }}). Also published to GitHub Maven Packages under com.ruoyi." \
+
               staging/ruoyi-*.jar
+
           fi
+
