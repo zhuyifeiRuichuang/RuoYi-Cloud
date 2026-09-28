@@ -130,6 +130,23 @@ jobs:
 
       # 两个端点对 Maven 包均可用，且由同一仓库的 GITHUB_TOKEN（packages: write）即可调用。
 
+      - name: Set release version across all poms
+        run: |
+          VERSION="${{ inputs.version }}"
+          echo "Setting release version to ${VERSION}"
+          mvn -B -ntp versions:set -DnewVersion="${VERSION}" -DgenerateBackupPoms=false -DprocessAllModules=true
+          mvn -B -ntp versions:set-property -Dproperty=ruoyi.version -DnewVersion="${VERSION}" -DgenerateBackupPoms=false
+          ACTUAL=$(sed -n 's/.*<version>\(.*\)<\/version>.*/\1/p' pom.xml | head -1)
+          echo "Effective project version: ${ACTUAL}"
+          if [ "${ACTUAL}" != "${VERSION}" ]; then
+            echo "ERROR: project version mismatch (pom=${ACTUAL}, input=${VERSION})"
+            exit 1
+          fi
+          if ! grep -q "<ruoyi.version>${VERSION}</ruoyi.version>" pom.xml; then
+            echo "ERROR: ruoyi.version property not updated to ${VERSION}"
+            exit 1
+          fi
+
       - name: Remove existing package versions with same version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
