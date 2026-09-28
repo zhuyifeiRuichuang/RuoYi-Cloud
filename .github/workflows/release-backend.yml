@@ -52,6 +52,57 @@ jobs:
               "url": "https://repo.maven.apache.org/maven2"
             }]
 
+      # GitHub Packages Maven Registry 禁止重复发布同一 GA:V（重复上传返回 409 Conflict），
+      # 且无法覆盖。为使 workflow 对同一版本号可幂等重跑，发布前先删除 Packages 中
+      # 与本次构建版本相同的既有版本。
+      # 删除走 user 级 REST 端点（与官方 actions/delete-package-versions 相同）：
+      #   GET    /users/{owner}/packages/maven/{package_name}/versions
+      #   DELETE /users/{owner}/packages/maven/{package_name}/versions/{id}
+      # Maven 包托管在触发 workflow 的同一仓库时，GITHUB_TOKEN 具备删除权限（packages: write）。
+      - name: Remove existing package versions with same version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_OWNER: ${{ github.repository_owner }}
+        run: |
+          VERSION=$(awk '/<parent>/,/<\/parent>/{next} /<version>/{gsub(/.*<version>|<\/version>.*/,""); print; exit}' pom.xml)
+          echo "Target version: ${VERSION}"
+          BASE="https://maven.pkg.github.com/${{ github.repository }}"
+          API="https://api.github.com"
+          AUTH="${{ github.repository_owner }}:${GH_TOKEN}"
+          for pom in $(find . -name pom.xml -not -path '*/target/*'); do
+            if grep -q "<parent>" "${pom}"; then n=2; else n=1; fi
+            GA=$(sed -n "s/.*<artifactId>\(.*\)<\/artifactId>.*/\1/p" "${pom}" | sed -n "${n}p")
+            [ -z "${GA}" ] && continue
+            PKG="com.ruoyi.${GA}"
+            URL="${BASE}/com/ruoyi/${GA}/${VERSION}/${GA}-${VERSION}.pom"
+            # maven.pkg.github.com 对已存在工件返回 302（重定向到 blob 存储），404 表示不存在
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' -u "${AUTH}" "${URL}")
+            if [ "${CODE}" != "200" ] && [ "${CODE}" != "302" ]; then
+              echo "${PKG}@${VERSION}: not published (HTTP ${CODE}), nothing to remove"
+              continue
+            fi
+            IDS=$(curl -s -H "Authorization: Bearer ${GH_TOKEN}" \
+                  -H "Accept: application/vnd.github+json" \
+                  "${API}/users/${GH_OWNER}/packages/maven/${PKG}/versions?per_page=100" \
+                  | jq -r --arg v "${VERSION}" '.[] | select(.name == $v) | .id')
+            if [ -z "${IDS}" ]; then
+              echo "${PKG}@${VERSION}: registry HTTP ${CODE} but no matching version id, skip"
+              continue
+            fi
+            for ID in ${IDS}; do
+              DEL=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
+                    -H "Authorization: Bearer ${GH_TOKEN}" \
+                    -H "Accept: application/vnd.github+json" \
+                    "${API}/users/${GH_OWNER}/packages/maven/${PKG}/versions/${ID}")
+              echo "${PKG}@${VERSION}: delete version id ${ID} -> HTTP ${DEL}"
+              # 204=已删除，404=此前已被删除（视为成功）
+              if [ "${DEL}" != "204" ] && [ "${DEL}" != "404" ]; then
+                echo "ERROR: failed to delete ${PKG}@${VERSION}, deploy would fail with 409 Conflict"
+                exit 1
+              fi
+            done
+          done
+
       # 打包并发布到 GitHub Maven Packages（com.ruoyi 下各模块）。跳过单测（CI 无 DB/Redis）
       - name: Build and deploy to GitHub Packages (Maven)
         run: |
@@ -87,8 +138,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "v${{ inputs.version }}" \
-            --repo "${{ github.repository }}" \
-            --title "RuoYi-Cloud v${{ inputs.version }}" \
-            --notes "Automated release of RuoYi-Cloud backend JARs (version ${{ inputs.version }}). Also published to GitHub Maven Packages under com.ruoyi." \
-            staging/ruoyi-*.jar
+          TAG="v${{ inputs.version }}"
+          if gh release view "${TAG}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists, skip create and refresh JARs"
+            gh release upload "${TAG}" staging/ruoyi-*.jar --repo "${{ github.repository }}" --clobber || true
+          else
+            gh release create "${TAG}" \
+              --repo "${{ github.repository }}" \
+              --title "RuoYi-Cloud v${{ inputs.version }}" \
+              --notes "Automated release of RuoYi-Cloud backend JARs (version ${{ inputs.version }}). Also published to GitHub Maven Packages under com.ruoyi." \
+              staging/ruoyi-*.jar
+          fi
