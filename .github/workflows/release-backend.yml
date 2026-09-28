@@ -98,7 +98,7 @@ jobs:
 
               "name": "Maven Central (no mirror)",
 
-              "mirrorOf": "*",
+              "mirrorOf": "*,!github",
 
               "url": "https://repo.maven.apache.org/maven2"
 
