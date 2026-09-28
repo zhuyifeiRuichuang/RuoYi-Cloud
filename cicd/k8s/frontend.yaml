@@ -1,5 +1,5 @@
 # RuoYi-Vue3 前端部署（镜像版本占位 __VERSION__，由 deploy-test 注入）
-# 镜像：ghcr.io/zhuyifeiRuichuang/ruoyi-vue3/ruoyi-web:__VERSION__
+# 镜像：ghcr.io/zhuyifeiruichuang/ruoyi-vue3/ruoyi-web:__VERSION__
 # nginx 反向代理 /prod-api -> ruoyi-gateway:8080
 apiVersion: apps/v1
 kind: Deployment
@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: web
-          image: ghcr.io/zhuyifeiRuichuang/ruoyi-vue3/ruoyi-web:__VERSION__
+          image: ghcr.io/zhuyifeiruichuang/ruoyi-vue3/ruoyi-web:__VERSION__
           ports:
             - containerPort: 80
           readinessProbe:

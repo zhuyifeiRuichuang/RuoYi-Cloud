@@ -17,8 +17,8 @@
 | --- | --- | --- |
 | `release-backend.yml` | RuoYi-Cloud | Maven 打包 → 发布到 GitHub Maven Packages(`com.ruoyi`) + 创建 Release 上传 7 个 fat-jar |
 | `release-frontend.yml` | RuoYi-Vue3 | `npm run build:prod` → 创建 Release 上传 `ruoyi-web-dist.zip` |
-| `build-images-backend.yml` | RuoYi-Cloud | 下载 Release JAR → 构建 7 个后端多架构镜像 → `ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-<svc>` |
-| `build-images-frontend.yml` | RuoYi-Vue3 | 下载 dist → 构建前端多架构镜像 → `ghcr.io/zhuyifeiRuichuang/ruoyi-vue3/ruoyi-web` |
+| `build-images-backend.yml` | RuoYi-Cloud | 下载 Release JAR → 构建 7 个后端多架构镜像 → `ghcr.io/zhuyifeiruichuang/ruoyi-cloud/ruoyi-<svc>` |
+| `build-images-frontend.yml` | RuoYi-Vue3 | 下载 dist → 构建前端多架构镜像 → `ghcr.io/zhuyifeiruichuang/ruoyi-vue3/ruoyi-web` |
 | `deploy-test.yml` | RuoYi-Cloud | **在线**验证：Docker Compose 全栈 + 标准 K8s(kind) 双路，仅 amd64 |
 
 ## 推荐执行顺序
@@ -44,7 +44,7 @@ bash cicd/scripts/smoke-test.sh
 ```
 
 说明：
-- 业务镜像来自 `ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-<svc>:<VERSION>`；前端来自 `ghcr.io/zhuyifeiRuichuang/ruoyi-vue3/ruoyi-web:<VERSION>`。
+- 业务镜像来自 `ghcr.io/zhuyifeiruichuang/ruoyi-cloud/ruoyi-<svc>:<VERSION>`；前端来自 `ghcr.io/zhuyifeiruichuang/ruoyi-vue3/ruoyi-web:<VERSION>`。
 - MySQL 初始化脚本在 `cicd/sql/`（顺序：`00` Nacos 表结构 → `01` RuoYi Nacos 配置 → `02` 业务库 → `03` quartz）。
 - **测试环境关闭了 Nacos 鉴权**（`NACOS_CORE_AUTH_ENABLED=false`），生产环境请开启并配置 `NACOS_AUTH_TOKEN`/`NACOS_AUTH_IDENTITY_*`。
 
