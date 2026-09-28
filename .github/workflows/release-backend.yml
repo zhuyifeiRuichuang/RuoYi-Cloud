@@ -36,7 +36,7 @@ jobs:
 
       # 强制直连 Maven Central、杜绝任何镜像（含中国地区加速）；同时配置 GitHub Packages 鉴权
       - name: Configure Maven settings (no mirror + GitHub Packages auth)
-        uses: s4u/maven-settings-action@v3
+        uses: s4u/maven-settings-action@v3.1.0
         with:
           servers: |
             [{
