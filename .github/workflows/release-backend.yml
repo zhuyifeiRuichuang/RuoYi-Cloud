@@ -63,22 +63,24 @@ jobs:
         run: |
           mkdir -p staging
           collect() {
-            local path="$1" name="$2"
+            local path="$1" name="$2" jar="$3"
             local f
-            f=$(find "$path/target" -maxdepth 1 -name "ruoyi-${name}-*.jar" ! -name "*-sources.jar" ! -name "original-*.jar" | head -n1)
+            # 各模块 pom 配置 <finalName>${project.artifactId}</finalName>，
+            # fat jar 产物为 <artifactId>.jar（无版本号），同时兼容带版本号的产物
+            f=$(find "$path/target" -maxdepth 1 \( -name "${jar}.jar" -o -name "${jar}-*.jar" \) ! -name "*-sources.jar" ! -name "original-*.jar" | head -n1)
             if [ -z "$f" ]; then
-              echo "ERROR: fat jar not found for ${name} in ${path}/target"
+              echo "ERROR: fat jar not found for ${jar} in ${path}/target"
               exit 1
             fi
             cp "$f" "staging/ruoyi-${name}.jar"
           }
-          collect ruoyi-gateway gateway
-          collect ruoyi-auth auth
-          collect ruoyi-modules/ruoyi-system system
-          collect ruoyi-modules/ruoyi-gen gen
-          collect ruoyi-modules/ruoyi-job job
-          collect ruoyi-modules/ruoyi-file file
-          collect ruoyi-visual/ruoyi-monitor monitor
+          collect ruoyi-gateway gateway ruoyi-gateway
+          collect ruoyi-auth auth ruoyi-auth
+          collect ruoyi-modules/ruoyi-system system ruoyi-modules-system
+          collect ruoyi-modules/ruoyi-gen gen ruoyi-modules-gen
+          collect ruoyi-modules/ruoyi-job job ruoyi-modules-job
+          collect ruoyi-modules/ruoyi-file file ruoyi-modules-file
+          collect ruoyi-visual/ruoyi-monitor monitor ruoyi-visual-monitor
           ls -lh staging
 
       - name: Create GitHub Release and upload JARs
