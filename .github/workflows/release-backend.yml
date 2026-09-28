@@ -202,7 +202,6 @@ jobs:
         run: |
 
           mvn -B -ntp clean deploy -DskipTests \
-
             -DaltDeploymentRepository=github::https://maven.pkg.github.com/${{ github.repository }}
 
 
@@ -276,13 +275,9 @@ jobs:
           else
 
             gh release create "${TAG}" \
-
               --repo "${{ github.repository }}" \
-
               --title "RuoYi-Cloud v${{ inputs.version }}" \
-
               --notes "Automated release of RuoYi-Cloud backend JARs (version ${{ inputs.version }}). Also published to GitHub Maven Packages under com.ruoyi." \
-
               staging/ruoyi-*.jar
 
           fi
