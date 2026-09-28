@@ -1,0 +1,273 @@
+# RuoYi-Cloud 后端 7 个微服务部署（镜像版本占位 __VERSION__，由 deploy-test 注入）
+# 镜像：ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-<svc>:__VERSION__
+# Nacos/MySQL/Redis 地址沿用服务名（同命名空间 ruoyi）
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ruoyi-gateway
+  labels: { app: ruoyi-gateway }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ruoyi-gateway }
+  template:
+    metadata:
+      labels: { app: ruoyi-gateway }
+    spec:
+      containers:
+        - name: gateway
+          image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-gateway:__VERSION__
+          env:
+            - name: JAVA_OPTS
+              value: >-
+                -Dspring.profiles.active=dev
+                -Dspring.cloud.nacos.discovery.server-addr=ruoyi-nacos:8848
+                -Dspring.cloud.nacos.config.server-addr=ruoyi-nacos:8848
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            tcpSocket: { port: 8080 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: 8080 }
+            initialDelaySeconds: 60
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ruoyi-gateway
+spec:
+  selector: { app: ruoyi-gateway }
+  ports:
+    - { port: 8080, targetPort: 8080 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ruoyi-auth
+  labels: { app: ruoyi-auth }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ruoyi-auth }
+  template:
+    metadata:
+      labels: { app: ruoyi-auth }
+    spec:
+      containers:
+        - name: auth
+          image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-auth:__VERSION__
+          env:
+            - name: JAVA_OPTS
+              value: >-
+                -Dspring.profiles.active=dev
+                -Dspring.cloud.nacos.discovery.server-addr=ruoyi-nacos:8848
+                -Dspring.cloud.nacos.config.server-addr=ruoyi-nacos:8848
+          ports:
+            - containerPort: 9200
+          readinessProbe:
+            tcpSocket: { port: 9200 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ruoyi-auth
+spec:
+  selector: { app: ruoyi-auth }
+  ports:
+    - { port: 9200, targetPort: 9200 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ruoyi-system
+  labels: { app: ruoyi-system }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ruoyi-system }
+  template:
+    metadata:
+      labels: { app: ruoyi-system }
+    spec:
+      containers:
+        - name: system
+          image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-system:__VERSION__
+          env:
+            - name: JAVA_OPTS
+              value: >-
+                -Dspring.profiles.active=dev
+                -Dspring.cloud.nacos.discovery.server-addr=ruoyi-nacos:8848
+                -Dspring.cloud.nacos.config.server-addr=ruoyi-nacos:8848
+          ports:
+            - containerPort: 9201
+          readinessProbe:
+            tcpSocket: { port: 9201 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ruoyi-system
+spec:
+  selector: { app: ruoyi-system }
+  ports:
+    - { port: 9201, targetPort: 9201 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ruoyi-gen
+  labels: { app: ruoyi-gen }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ruoyi-gen }
+  template:
+    metadata:
+      labels: { app: ruoyi-gen }
+    spec:
+      containers:
+        - name: gen
+          image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-gen:__VERSION__
+          env:
+            - name: JAVA_OPTS
+              value: >-
+                -Dspring.profiles.active=dev
+                -Dspring.cloud.nacos.discovery.server-addr=ruoyi-nacos:8848
+                -Dspring.cloud.nacos.config.server-addr=ruoyi-nacos:8848
+          ports:
+            - containerPort: 9202
+          readinessProbe:
+            tcpSocket: { port: 9202 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ruoyi-gen
+spec:
+  selector: { app: ruoyi-gen }
+  ports:
+    - { port: 9202, targetPort: 9202 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ruoyi-job
+  labels: { app: ruoyi-job }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ruoyi-job }
+  template:
+    metadata:
+      labels: { app: ruoyi-job }
+    spec:
+      containers:
+        - name: job
+          image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-job:__VERSION__
+          env:
+            - name: JAVA_OPTS
+              value: >-
+                -Dspring.profiles.active=dev
+                -Dspring.cloud.nacos.discovery.server-addr=ruoyi-nacos:8848
+                -Dspring.cloud.nacos.config.server-addr=ruoyi-nacos:8848
+          ports:
+            - containerPort: 9203
+          readinessProbe:
+            tcpSocket: { port: 9203 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ruoyi-job
+spec:
+  selector: { app: ruoyi-job }
+  ports:
+    - { port: 9203, targetPort: 9203 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ruoyi-file
+  labels: { app: ruoyi-file }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ruoyi-file }
+  template:
+    metadata:
+      labels: { app: ruoyi-file }
+    spec:
+      containers:
+        - name: file
+          image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-file:__VERSION__
+          env:
+            - name: JAVA_OPTS
+              value: >-
+                -Dspring.profiles.active=dev
+                -Dspring.cloud.nacos.discovery.server-addr=ruoyi-nacos:8848
+                -Dspring.cloud.nacos.config.server-addr=ruoyi-nacos:8848
+          ports:
+            - containerPort: 9300
+          readinessProbe:
+            tcpSocket: { port: 9300 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ruoyi-file
+spec:
+  selector: { app: ruoyi-file }
+  ports:
+    - { port: 9300, targetPort: 9300 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ruoyi-monitor
+  labels: { app: ruoyi-monitor }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ruoyi-monitor }
+  template:
+    metadata:
+      labels: { app: ruoyi-monitor }
+    spec:
+      containers:
+        - name: monitor
+          image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-monitor:__VERSION__
+          env:
+            - name: JAVA_OPTS
+              value: >-
+                -Dspring.profiles.active=dev
+                -Dspring.cloud.nacos.discovery.server-addr=ruoyi-nacos:8848
+                -Dspring.cloud.nacos.config.server-addr=ruoyi-nacos:8848
+          ports:
+            - containerPort: 9100
+          readinessProbe:
+            tcpSocket: { port: 9100 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ruoyi-monitor
+spec:
+  selector: { app: ruoyi-monitor }
+  ports:
+    - { port: 9100, targetPort: 9100 }

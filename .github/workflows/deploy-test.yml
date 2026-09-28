@@ -1,0 +1,86 @@
+name: Deploy Test (RuoYi-Cloud)
+
+# 全手动触发：在线（GitHub 托管 runner）验证容器化部署。仅测试 amd64。
+# 前置：必须先运行 build-images-backend 与 build-images-frontend，生成对应版本的 ghcr 镜像。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version matching built images, e.g. 3.6.8 (no leading v)'
+        required: true
+        default: '3.6.8'
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------- Docker Compose 路径（amd64） ----------
+  compose:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull images & start stack
+        run: |
+          docker compose -f cicd/docker-compose.yml pull
+          docker compose -f cicd/docker-compose.yml up -d
+
+      - name: Wait for healthy & smoke test
+        run: bash cicd/scripts/smoke-test.sh
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f cicd/docker-compose.yml down -v
+
+  # ---------- 标准 Kubernetes 路径（amd64, kind） ----------
+  kubernetes:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubectl + kind
+        run: |
+          curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x /usr/local/bin/kubectl
+          curl -fsSL -o /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.29.0/kind-linux-amd64
+          chmod +x /usr/local/bin/kind
+
+      - name: Create kind cluster
+        run: kind create cluster --config cicd/k8s/kind-cluster.yaml --name ruoyi
+
+      - name: Apply manifests (inject version + SQL configmap)
+        run: |
+          sed -i "s/__VERSION__/${VERSION}/g" cicd/k8s/backend.yaml cicd/k8s/frontend.yaml
+          kubectl apply -f cicd/k8s/namespace.yaml
+          # 将 cicd/sql 下的 4 个初始化 SQL 制作为 configMap，挂载进 MySQL 初始化目录
+          kubectl -n ruoyi create configmap ruoyi-sql --from-file=cicd/sql --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f cicd/k8s/middleware.yaml -n ruoyi
+          kubectl apply -f cicd/k8s/backend.yaml -n ruoyi
+          kubectl apply -f cicd/k8s/frontend.yaml -n ruoyi
+
+      - name: Wait for rollout
+        run: |
+          kubectl -n ruoyi rollout status deployment/ruoyi-nacos --timeout=300s
+          for s in gateway auth system gen job file monitor web; do
+            kubectl -n ruoyi rollout status "deployment/ruoyi-${s}" --timeout=300s || true
+          done
+
+      - name: Smoke test (port-forward web)
+        run: |
+          kubectl -n ruoyi port-forward svc/ruoyi-web 8088:80 &
+          PF=$!
+          sleep 5
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8088/ >/dev/null; then echo "WEB OK"; break; fi
+            sleep 5
+          done
+          curl -fsS http://localhost:8088/ | head -c 200 || true
+          kill $PF || true
+
+      - name: Tear down
+        if: always()
+        run: kind delete cluster --name ruoyi

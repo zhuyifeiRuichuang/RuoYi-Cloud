@@ -1,0 +1,127 @@
+# 中间件：MySQL 8.0 / Redis 7 / Nacos 3.0.2（测试用，数据非持久化）
+# MySQL 初始化 SQL 通过 configMap(ruoyi-sql) 挂载到 /docker-entrypoint-initdb.d，
+# 该 configMap 由 deploy-test 用 `kubectl create configmap ruoyi-sql --from-file=cicd/sql` 生成。
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ruoyi-mysql-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ruoyi-mysql
+  labels: { app: ruoyi-mysql }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ruoyi-mysql }
+  template:
+    metadata:
+      labels: { app: ruoyi-mysql }
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: password
+            - name: MYSQL_DATABASE
+              value: ry-cloud
+          ports:
+            - containerPort: 3306
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/mysql }
+            - { name: initdb, mountPath: /docker-entrypoint-initdb.d, readOnly: true }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ruoyi-mysql-data
+        - name: initdb
+          configMap:
+            name: ruoyi-sql
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ruoyi-mysql
+spec:
+  selector: { app: ruoyi-mysql }
+  ports:
+    - { port: 3306, targetPort: 3306 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ruoyi-redis
+  labels: { app: ruoyi-redis }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ruoyi-redis }
+  template:
+    metadata:
+      labels: { app: ruoyi-redis }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ruoyi-redis
+spec:
+  selector: { app: ruoyi-redis }
+  ports:
+    - { port: 6379, targetPort: 6379 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ruoyi-nacos
+  labels: { app: ruoyi-nacos }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ruoyi-nacos }
+  template:
+    metadata:
+      labels: { app: ruoyi-nacos }
+    spec:
+      containers:
+        - name: nacos
+          image: nacos/nacos-server:v3.0.2
+          env:
+            - { name: MODE, value: standalone }
+            - { name: SPRING_DATASOURCE_PLATFORM, value: mysql }
+            - { name: MYSQL_SERVICE_HOST, value: ruoyi-mysql }
+            - { name: MYSQL_SERVICE_DB_NAME, value: ry-config }
+            - { name: MYSQL_SERVICE_PORT, value: "3306" }
+            - { name: MYSQL_SERVICE_USER, value: root }
+            - { name: MYSQL_SERVICE_PASSWORD, value: password }
+            - { name: MYSQL_SERVICE_DB_PARAM, value: "characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useUnicode=true&useSSL=false&serverTimezone=UTC" }
+            - { name: NACOS_CORE_AUTH_ENABLED, value: "false" }
+            - { name: NACOS_AUTH_ENABLED, value: "false" }
+          ports:
+            - containerPort: 8848
+          readinessProbe:
+            httpGet: { path: /, port: 8848 }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 12
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ruoyi-nacos
+spec:
+  selector: { app: ruoyi-nacos }
+  ports:
+    - { port: 8848, targetPort: 8848 }

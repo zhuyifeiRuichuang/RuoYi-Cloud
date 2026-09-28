@@ -1,0 +1,6 @@
+# kind 集群定义（amd64 测试用）。仅在 deploy-test 的 kubernetes job 中使用。
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker

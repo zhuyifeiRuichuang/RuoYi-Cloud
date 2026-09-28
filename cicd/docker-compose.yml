@@ -1,0 +1,183 @@
+# RuoYi-Cloud 全栈容器化部署（amd64 测试）
+# 用法（仓库根目录执行）：
+#   VERSION=3.6.8 docker compose -f cicd/docker-compose.yml up -d
+# 说明：
+#   - 业务镜像 ruoyi-* 来自 ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-<svc>:<VERSION>
+#   - 前端镜像来自 ghcr.io/zhuyifeiRuichuang/ruoyi-vue3/ruoyi-web:<VERSION>
+#   - 中间件使用 docker.io 官方原版：mysql:8.0 / redis:7-alpine / nacos/nacos-server:v3.0.2
+#   - 数据库初始化脚本在 cicd/sql（相对于本文件目录）
+#   - 测试环境关闭 Nacos 鉴权（NACOS_CORE_AUTH_ENABLED=false），生产请开启并配置令牌
+name: ruoyi-cloud
+
+services:
+  ruoyi-mysql:
+    image: mysql:8.0
+    platform: linux/amd64
+    container_name: ruoyi-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: ry-cloud
+    command:
+      - mysqld
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+8:00
+      - --lower-case-table-names=1
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./sql:/docker-entrypoint-initdb.d:ro
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -ppassword || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ruoyi-redis:
+    image: redis:7-alpine
+    platform: linux/amd64
+    container_name: ruoyi-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ruoyi-nacos:
+    image: nacos/nacos-server:v3.0.2
+    platform: linux/amd64
+    container_name: ruoyi-nacos
+    environment:
+      MODE: standalone
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: ruoyi-mysql
+      MYSQL_SERVICE_DB_NAME: ry-config
+      MYSQL_SERVICE_PORT: "3306"
+      MYSQL_SERVICE_USER: root
+      MYSQL_SERVICE_PASSWORD: password
+      MYSQL_SERVICE_DB_PARAM: "characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useUnicode=true&useSSL=false&serverTimezone=UTC"
+      # 测试环境关闭鉴权，避免无默认账号导致服务无法注册/读取配置
+      NACOS_CORE_AUTH_ENABLED: "false"
+      NACOS_AUTH_ENABLED: "false"
+    ports:
+      - "8848:8848"
+    depends_on:
+      ruoyi-mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ruoyi-gateway:
+    image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-gateway:${VERSION}
+    container_name: ruoyi-gateway
+    environment:
+      JAVA_OPTS: >-
+        -Dspring.profiles.active=dev
+        -Dspring.cloud.nacos.discovery.server-addr=ruoyi-nacos:8848
+        -Dspring.cloud.nacos.config.server-addr=ruoyi-nacos:8848
+    ports:
+      - "8080:8080"
+    depends_on:
+      - ruoyi-nacos
+    restart: unless-stopped
+
+  ruoyi-auth:
+    image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-auth:${VERSION}
+    container_name: ruoyi-auth
+    environment:
+      JAVA_OPTS: >-
+        -Dspring.profiles.active=dev
+        -Dspring.cloud.nacos.discovery.server-addr=ruoyi-nacos:8848
+        -Dspring.cloud.nacos.config.server-addr=ruoyi-nacos:8848
+    ports:
+      - "9200:9200"
+    depends_on:
+      - ruoyi-nacos
+    restart: unless-stopped
+
+  ruoyi-modules-system:
+    image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-system:${VERSION}
+    container_name: ruoyi-modules-system
+    environment:
+      JAVA_OPTS: >-
+        -Dspring.profiles.active=dev
+        -Dspring.cloud.nacos.discovery.server-addr=ruoyi-nacos:8848
+        -Dspring.cloud.nacos.config.server-addr=ruoyi-nacos:8848
+    ports:
+      - "9201:9201"
+    depends_on:
+      - ruoyi-nacos
+    restart: unless-stopped
+
+  ruoyi-modules-gen:
+    image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-gen:${VERSION}
+    container_name: ruoyi-modules-gen
+    environment:
+      JAVA_OPTS: >-
+        -Dspring.profiles.active=dev
+        -Dspring.cloud.nacos.discovery.server-addr=ruoyi-nacos:8848
+        -Dspring.cloud.nacos.config.server-addr=ruoyi-nacos:8848
+    ports:
+      - "9202:9202"
+    depends_on:
+      - ruoyi-nacos
+    restart: unless-stopped
+
+  ruoyi-modules-job:
+    image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-job:${VERSION}
+    container_name: ruoyi-modules-job
+    environment:
+      JAVA_OPTS: >-
+        -Dspring.profiles.active=dev
+        -Dspring.cloud.nacos.discovery.server-addr=ruoyi-nacos:8848
+        -Dspring.cloud.nacos.config.server-addr=ruoyi-nacos:8848
+    ports:
+      - "9203:9203"
+    depends_on:
+      - ruoyi-nacos
+    restart: unless-stopped
+
+  ruoyi-modules-file:
+    image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-file:${VERSION}
+    container_name: ruoyi-modules-file
+    environment:
+      JAVA_OPTS: >-
+        -Dspring.profiles.active=dev
+        -Dspring.cloud.nacos.discovery.server-addr=ruoyi-nacos:8848
+        -Dspring.cloud.nacos.config.server-addr=ruoyi-nacos:8848
+    ports:
+      - "9300:9300"
+    volumes:
+      - file-upload:/home/ruoyi/uploadPath
+    depends_on:
+      - ruoyi-nacos
+    restart: unless-stopped
+
+  ruoyi-visual-monitor:
+    image: ghcr.io/zhuyifeiRuichuang/ruoyi-cloud/ruoyi-monitor:${VERSION}
+    container_name: ruoyi-visual-monitor
+    environment:
+      JAVA_OPTS: >-
+        -Dspring.profiles.active=dev
+        -Dspring.cloud.nacos.discovery.server-addr=ruoyi-nacos:8848
+        -Dspring.cloud.nacos.config.server-addr=ruoyi-nacos:8848
+    ports:
+      - "9100:9100"
+    depends_on:
+      - ruoyi-nacos
+    restart: unless-stopped
+
+  ruoyi-web:
+    image: ghcr.io/zhuyifeiRuichuang/ruoyi-vue3/ruoyi-web:${VERSION}
+    container_name: ruoyi-web
+    ports:
+      - "80:80"
+    depends_on:
+      - ruoyi-gateway
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
+  file-upload:
