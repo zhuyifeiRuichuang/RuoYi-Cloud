@@ -6,9 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version matching built images, e.g. 3.6.8 (no leading v)'
+        description: 'Backend image version, e.g. 3.6.8 (no leading v)'
         required: true
         default: '3.6.8'
+      web_version:
+        description: 'Frontend image version (RuoYi-Vue3 releases independently); empty = latest'
+        required: false
+        default: 'latest'
 
 permissions:
   contents: read
@@ -19,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ inputs.version }}
+      WEB_VERSION: ${{ inputs.web_version || 'latest' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -30,6 +35,12 @@ jobs:
       - name: Wait for healthy & smoke test
         run: bash cicd/scripts/smoke-test.sh
 
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          docker compose -f cicd/docker-compose.yml ps || true
+          docker compose -f cicd/docker-compose.yml logs --tail=100 || true
+
       - name: Tear down
         if: always()
         run: docker compose -f cicd/docker-compose.yml down -v
@@ -39,6 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ inputs.version }}
+      WEB_VERSION: ${{ inputs.web_version || 'latest' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -57,7 +69,8 @@ jobs:
 
       - name: Apply manifests (inject version + SQL configmap)
         run: |
-          sed -i "s/__VERSION__/${VERSION}/g" cicd/k8s/backend.yaml cicd/k8s/frontend.yaml
+          sed -i "s/__VERSION__/${VERSION}/g; s/__WEB_VERSION__/${WEB_VERSION}/g" cicd/k8s/backend.yaml cicd/k8s/frontend.yaml
+          grep -n "image: ghcr" cicd/k8s/backend.yaml cicd/k8s/frontend.yaml
           kubectl apply -f cicd/k8s/namespace.yaml
           # 将 cicd/sql 下的 4 个初始化 SQL 制作为 configMap，挂载进 MySQL 初始化目录
           kubectl -n ruoyi create configmap ruoyi-sql --from-file=cicd/sql --dry-run=client -o yaml | kubectl apply -f -
@@ -67,10 +80,23 @@ jobs:
 
       - name: Wait for rollout
         run: |
-          kubectl -n ruoyi rollout status deployment/ruoyi-nacos --timeout=300s
+          kubectl -n ruoyi rollout status deployment/ruoyi-nacos --timeout=600s
           for s in gateway auth system gen job file monitor web; do
-            kubectl -n ruoyi rollout status "deployment/ruoyi-${s}" --timeout=300s || true
+            kubectl -n ruoyi rollout status "deployment/ruoyi-${s}" --timeout=600s || true
           done
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n ruoyi get pods -o wide || true
+          kubectl -n ruoyi get events --sort-by=.lastTimestamp | tail -40 || true
+          POD=$(kubectl -n ruoyi get pod -l app=ruoyi-nacos -o name | head -1 || true)
+          if [ -n "$POD" ]; then
+            kubectl -n ruoyi describe "$POD" || true
+            kubectl -n ruoyi logs "$POD" --tail=200 || true
+          else
+            echo "no nacos pod found"
+          fi
 
       - name: Smoke test (port-forward web)
         run: |

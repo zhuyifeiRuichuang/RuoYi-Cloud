@@ -1,9 +1,10 @@
 # RuoYi-Cloud 全栈容器化部署（amd64 测试）
 # 用法（仓库根目录执行）：
-#   VERSION=3.6.8 docker compose -f cicd/docker-compose.yml up -d
+#   VERSION=3.6.8 WEB_VERSION=latest docker compose -f cicd/docker-compose.yml up -d
 # 说明：
 #   - 业务镜像 ruoyi-* 来自 ghcr.io/zhuyifeiruichuang/ruoyi-cloud/ruoyi-<svc>:<VERSION>
-#   - 前端镜像来自 ghcr.io/zhuyifeiruichuang/ruoyi-vue3/ruoyi-web:<VERSION>
+#   - 前端镜像来自 ghcr.io/zhuyifeiruichuang/ruoyi-vue3/ruoyi-web:<WEB_VERSION>
+#     前端是独立仓库（RuoYi-Vue3）、独立发版，tag 与后端不必然一致，故版本单独传入；未设置时回退 latest
 #   - 中间件使用 docker.io 官方原版：mysql:8.0 / redis:7-alpine / nacos/nacos-server:v3.0.2
 #   - 数据库初始化脚本在 cicd/sql（相对于本文件目录）
 #   - 测试环境关闭 Nacos 鉴权（NACOS_CORE_AUTH_ENABLED=false），生产请开启并配置令牌
@@ -59,11 +60,17 @@ services:
       MYSQL_SERVICE_USER: root
       MYSQL_SERVICE_PASSWORD: password
       MYSQL_SERVICE_DB_PARAM: "characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useUnicode=true&useSSL=false&serverTimezone=UTC"
+      # Nacos 3.x 启动要求显式提供鉴权令牌与身份标识（关闭鉴权时同样要求非空）
+      NACOS_AUTH_TOKEN: "cnVveWktY2xvdWQtZGV2LXRlc3QtdG9rZW4tc2VjcmV0LWtleS0wMTIzNDU2Nzg5"
+      NACOS_AUTH_IDENTITY_KEY: "ruoyi-identity-key"
+      NACOS_AUTH_IDENTITY_VALUE: "ruoyi-identity-value"
       # 测试环境关闭鉴权，避免无默认账号导致服务无法注册/读取配置
       NACOS_CORE_AUTH_ENABLED: "false"
       NACOS_AUTH_ENABLED: "false"
     ports:
       - "8848:8848"
+      # Nacos 客户端（2.x/3.x）通过 gRPC 9848 做服务注册与配置监听
+      - "9848:9848"
     depends_on:
       ruoyi-mysql:
         condition: service_healthy
@@ -170,7 +177,7 @@ services:
     restart: unless-stopped
 
   ruoyi-web:
-    image: ghcr.io/zhuyifeiruichuang/ruoyi-vue3/ruoyi-web:${VERSION}
+    image: ghcr.io/zhuyifeiruichuang/ruoyi-vue3/ruoyi-web:${WEB_VERSION:-latest}
     container_name: ruoyi-web
     ports:
       - "80:80"
