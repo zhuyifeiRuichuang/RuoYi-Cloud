@@ -106,7 +106,9 @@ spec:
             - { name: MYSQL_SERVICE_PORT, value: "3306" }
             - { name: MYSQL_SERVICE_USER, value: root }
             - { name: MYSQL_SERVICE_PASSWORD, value: password }
-            - { name: MYSQL_SERVICE_DB_PARAM, value: "characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useUnicode=true&useSSL=false&serverTimezone=UTC" }
+            # allowPublicKeyRetrieval=true：MySQL 8 默认 caching_sha2_password，JDBC 未允许公钥检索会报
+            # "Public Key Retrieval is not allowed"，Nacos 将一直 CrashLoopBackOff
+            - { name: MYSQL_SERVICE_DB_PARAM, value: "characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useUnicode=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true" }
             # Nacos 3.x 启动要求显式提供鉴权令牌与身份标识（关闭鉴权时同样要求非空）
             - { name: NACOS_AUTH_TOKEN, value: "cnVveWktY2xvdWQtZGV2LXRlc3QtdG9rZW4tc2VjcmV0LWtleS0wMTIzNDU2Nzg5" }
             - { name: NACOS_AUTH_IDENTITY_KEY, value: "ruoyi-identity-key" }
