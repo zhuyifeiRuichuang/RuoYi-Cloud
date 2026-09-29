@@ -47,7 +47,8 @@ bash cicd/scripts/smoke-test.sh
 - 业务镜像来自 `ghcr.io/zhuyifeiruichuang/ruoyi-cloud/ruoyi-<svc>:<VERSION>`；前端来自 `ghcr.io/zhuyifeiruichuang/ruoyi-vue3/ruoyi-web:<WEB_VERSION>`。
 - **前端版本单独传入**：前端是独立仓库（RuoYi-Vue3）独立发版，tag 与后端不必然一致，不能复用 `VERSION`。未设置 `WEB_VERSION` 时回退 `latest`。
 - Nacos 3.x 起控制台独立到 8080 端口，8848 仅提供 OpenAPI；客户端服务注册/配置监听走 gRPC **9848**，已同步放行。
-- MySQL 初始化脚本在 `cicd/sql/`（顺序：`00` Nacos 表结构 → `01` RuoYi Nacos 配置 → `02` 业务库 → `03` quartz）。
+- MySQL 初始化脚本在 `cicd/sql/`（顺序：`00` 建 `ry-config` 库 → `01` Nacos 表结构 + 配置数据 → `02` 业务库 `ry-cloud` → `03` quartz）。
+- `00` 只建库不建表：Nacos 表结构统一由 `01`（Nacos 实例导出，含 schema 与 `config_info` 数据）提供。两份文件同时建 `config_info` 会让 MySQL 初始化报 `ERROR 1050 ... already exists` 并退出，导致整栈起不来。
 - **测试环境关闭了 Nacos 鉴权**（`NACOS_CORE_AUTH_ENABLED=false`），生产环境请开启并配置 `NACOS_AUTH_TOKEN`/`NACOS_AUTH_IDENTITY_*`。
 
 ## 标准 K8s 部署
