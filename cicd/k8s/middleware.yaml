@@ -107,15 +107,26 @@ spec:
             - { name: MYSQL_SERVICE_USER, value: root }
             - { name: MYSQL_SERVICE_PASSWORD, value: password }
             - { name: MYSQL_SERVICE_DB_PARAM, value: "characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useUnicode=true&useSSL=false&serverTimezone=UTC" }
+            # Nacos 3.x 启动要求显式提供鉴权令牌与身份标识（关闭鉴权时同样要求非空）
+            - { name: NACOS_AUTH_TOKEN, value: "cnVveWktY2xvdWQtZGV2LXRlc3QtdG9rZW4tc2VjcmV0LWtleS0wMTIzNDU2Nzg5" }
+            - { name: NACOS_AUTH_IDENTITY_KEY, value: "ruoyi-identity-key" }
+            - { name: NACOS_AUTH_IDENTITY_VALUE, value: "ruoyi-identity-value" }
             - { name: NACOS_CORE_AUTH_ENABLED, value: "false" }
             - { name: NACOS_AUTH_ENABLED, value: "false" }
           ports:
-            - containerPort: 8848
+            - { containerPort: 8848, name: http }
+            # Nacos 客户端（2.x/3.x）通过 gRPC 9848 做服务注册与配置监听，Service 必须放行
+            - { containerPort: 9848, name: grpc }
+          # Nacos 3.x 起控制台独立到 8080，8848 只提供 OpenAPI，GET / 已不再返回健康页，
+          # 因此探活改用端口连通性判断（端口监听即代表进程完成启动）。
           readinessProbe:
-            httpGet: { path: /, port: 8848 }
+            tcpSocket: { port: 8848 }
             initialDelaySeconds: 30
             periodSeconds: 10
-            failureThreshold: 12
+          livenessProbe:
+            tcpSocket: { port: 8848 }
+            initialDelaySeconds: 120
+            periodSeconds: 20
 ---
 apiVersion: v1
 kind: Service
@@ -124,4 +135,5 @@ metadata:
 spec:
   selector: { app: ruoyi-nacos }
   ports:
-    - { port: 8848, targetPort: 8848 }
+    - { name: http, port: 8848, targetPort: 8848 }
+    - { name: grpc, port: 9848, targetPort: 9848 }
